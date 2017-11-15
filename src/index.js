@@ -1,16 +1,26 @@
+import './css/canvases.css';
+import mapSpec from './imgSpecs/sf2-map.json';
+import spriteImg from './img/sf2-map.png';
+
 const battlefield = {
-  dimensions: {width: 15, height: 30}
+  dimensions: {width: 20, height: 30},
+  sizes: {tileSize: 12, windowHeight: 14, windowWidth: 26}
 };
 
+const sprite = new Image();
+sprite.src = spriteImg;
+
+document.body.innerHTML += '<canvas id="canvasId"></canvas>';
+
 let key;
-const readline = require('readline');
-
-readline.emitKeypressEvents(process.stdin);
-process.stdin.setRawMode(true);
-
-process.stdin.on('keypress', (str, _key) => {
+document.addEventListener('keydown', e => {
+  const _key = e.key;
   key = _key;
-  if (key && key.sequence === '\u0003') process.exit();
+});
+
+document.addEventListener('keyup', e => {
+  const _key = e.key;
+  if (_key === key) key = undefined;
 });
 
 const DIR_NONE = 'O';
@@ -52,10 +62,10 @@ const playerBrain = {
     let newX = x;
     let newY = y;
     if (!key) return {x, y, dir: DIR_NONE};
-    if (key.name === 'up') newY--;
-    if (key.name === 'down') newY++;
-    if (key.name === 'right') newX++;
-    if (key.name === 'left') newX--;
+    if (key === 'ArrowUp') newY--;
+    if (key === 'ArrowDown') newY++;
+    if (key === 'ArrowRight') newX++;
+    if (key === 'ArrowLeft') newX--;
 
     newX = Math.min(newX, width - 1);
     newX = Math.max(newX, 0);
@@ -95,17 +105,21 @@ const performActions = ({battlefield, soldiers}) => {
   });
 };
 
+const hasLeft = (view, x, y, symbol) => !view[y][x - 1] || view[y][x - 1] === symbol;
+const hasRight = (view, x, y, symbol) => !view[y][x + 1] || view[y][x + 1] === symbol;
+
 const drawBattlefield = ({battlefield, soldiers, player}) => {
   const view = [];
 
   const {width, height} = battlefield.dimensions;
+  const {windowHeight, windowWidth, tileSize} = battlefield.sizes;
+  const {position} = player;
 
-  const windowSize = 10;
-  const side = windowSize / 2;
-
-  for (let h = player.position.y - side; h < player.position.y + side + 1; h++) {
+  for (let y = 0; y < windowHeight; y++) {
     const row = [];
-    for (let w = player.position.x - side; w < player.position.x + side + 1; w++) {
+    const h = position.y - windowHeight / 2 + y;
+    for (let x = 0; x < windowWidth; x++) {
+      const w = position.x - windowWidth / 2 + x;
       row.push(h >= 0 && h < height && w >= 0 && w < width ? ' ' : '#');
     }
     view.push(row);
@@ -117,15 +131,41 @@ const drawBattlefield = ({battlefield, soldiers, player}) => {
   }));
 
   soldierPositions.forEach(({soldier, x, y}) => {
-    y = y - player.position.y + side;
-    x = x - player.position.x + side;
-    if (y >= 0 && y <= windowSize && x >= 0 && x <= windowSize) view[y][x] = soldier.draw();
+    const newY = y - position.y + windowHeight / 2;
+    const newX = x - position.x + windowWidth / 2;
+    if (newY >= 0 && newY < windowHeight && newX >= 0 && newX < windowWidth) view[newY][newX] = soldier.draw();
   });
 
-  console.clear();
-  const yBorder = Array.from({length: windowSize + 2}, () => '-').join('');
-  const board = `${yBorder}\n` + view.map(row => `|${row.join('')}|`).join('\n') + `\n${yBorder}`;
-  console.log(board);
+  const canvas = document.getElementById('canvasId');
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  for (let y = 0; y < view.length; y++) {
+    for (let x = 0; x < view[y].length; x++) {
+      const left = hasLeft(view, x, y, '#');
+      const right = hasRight(view, x, y, '#');
+      const specNum = left && right ? 0 : left ? 2 : 1;
+      if (view[y][x] === '#') drawTile(context, sprite, mapSpec[specNum], x, y, tileSize);
+      else if (view[y][x] !== ' ') drawBlock(context, x, y, tileSize);
+    }
+  }
+};
+
+const drawTile = (context, sprite, singleTileSpec, x, y, tileSize) => {
+  context.drawImage(
+    sprite,
+    singleTileSpec.x,
+    singleTileSpec.y,
+    24,
+    24, // source coords
+    Math.floor(x * tileSize),
+    Math.floor(y * tileSize),
+    tileSize,
+    tileSize // destination coords
+  );
+};
+
+const drawBlock = (context, x, y, tileSize) => {
+  context.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
 };
 
 const play = ({battlefield, soldiers, player}) => {
@@ -148,7 +188,7 @@ const soldiers = Array.from(
 );
 const player = new Soldier({
   brain: playerBrain,
-  x: battlefield.dimensions.width / 2,
+  x: Math.floor(battlefield.dimensions.width / 2),
   y: battlefield.dimensions.height - 1
 });
 soldiers.push(player);
