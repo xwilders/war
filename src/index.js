@@ -3,7 +3,7 @@ import mapSpec from './imgSpecs/sf2-map.json';
 import spriteImg from './img/sf2-map.png';
 
 const battlefield = {
-  dimensions: {width: 20, height: 30},
+  dimensions: {width: 50, height: 3},
   sizes: {tileSize: 12, windowHeight: 14, windowWidth: 26}
 };
 
@@ -37,6 +37,10 @@ const getDir = (x, y) => {
   if (x === -1) return DIR_LEFT;
 };
 
+const tileSize = battlefield.sizes.tileSize;
+const speedX = tileSize / 2;
+const speedY = tileSize / 3;
+
 const ai = {
   move: ({x, y}, {width, height}) => {
     const direction = Math.random() * 2;
@@ -44,12 +48,12 @@ const ai = {
     let newY = y;
 
     if (direction < 1) {
-      newX = x + Math.floor(Math.random() * 3 - 1);
-      newX = Math.min(newX, width - 1);
+      newX = x + Math.floor(Math.random() * 3 - 1) * tileSize;
+      newX = Math.min(newX, (width - 1) * tileSize);
       newX = Math.max(newX, 0);
     } else {
-      newY = y + Math.floor(Math.random() * 3 - 1);
-      newY = Math.min(newY, height - 1);
+      newY = y + Math.floor(Math.random() * 3 - 1) * tileSize;
+      newY = Math.min(newY, (height - 1) * tileSize);
       newY = Math.max(newY, 0);
     }
 
@@ -62,14 +66,14 @@ const playerBrain = {
     let newX = x;
     let newY = y;
     if (!key) return {x, y, dir: DIR_NONE};
-    if (key === 'ArrowUp') newY--;
-    if (key === 'ArrowDown') newY++;
-    if (key === 'ArrowRight') newX++;
-    if (key === 'ArrowLeft') newX--;
+    if (key === 'ArrowUp') newY -= speedY;
+    if (key === 'ArrowDown') newY += speedY;
+    if (key === 'ArrowRight') newX += speedX;
+    if (key === 'ArrowLeft') newX -= speedX;
 
-    newX = Math.min(newX, width - 1);
+    newX = Math.min(newX, (width - 1) * tileSize);
     newX = Math.max(newX, 0);
-    newY = Math.min(newY, height - 1);
+    newY = Math.min(newY, (height - 1) * tileSize);
     newY = Math.max(newY, 0);
 
     return {x: newX, y: newY, dir: getDir(newX - x, newY - y)};
@@ -77,10 +81,11 @@ const playerBrain = {
 };
 
 class Soldier {
-  constructor({x, y, brain}) {
-    this.position = {x, y};
+  constructor({x, y, brain, team}) {
+    this.position = {x: x * tileSize, y: y * tileSize};
     this.direction = DIR_NONE;
     this.brain = brain;
+    this.team = team;
   }
 
   draw() {
@@ -115,14 +120,29 @@ const drawBattlefield = ({battlefield, soldiers, player}) => {
   const {windowHeight, windowWidth, tileSize} = battlefield.sizes;
   const {position} = player;
 
-  for (let y = 0; y < windowHeight; y++) {
+  for (let y = 0; y < windowHeight + 1; y++) {
     const row = [];
-    const h = position.y - windowHeight / 2 + y;
-    for (let x = 0; x < windowWidth; x++) {
-      const w = position.x - windowWidth / 2 + x;
+    const h = position.y / tileSize - windowHeight / 2 + y;
+    for (let x = 0; x < windowWidth + 1; x++) {
+      const w = position.x / tileSize - windowWidth / 2 + x;
       row.push(h >= 0 && h < height && w >= 0 && w < width ? ' ' : '#');
     }
     view.push(row);
+  }
+
+  const canvas = document.getElementById('canvasId');
+  const context = canvas.getContext('2d');
+  context.clearRect(0, 0, canvas.width, canvas.height);
+  const xDiff = position.x % tileSize;
+  const yDiff = position.y % tileSize;
+  for (let y = 0; y < view.length; y++) {
+    for (let x = 0; x < view[y].length; x++) {
+      const left = hasLeft(view, x, y, '#');
+      const right = hasRight(view, x, y, '#');
+      const specNum = left && right ? 0 : left ? 2 : 1;
+      if (view[y][x] === '#')
+        drawTile(context, sprite, mapSpec[specNum], x * tileSize - xDiff, y * tileSize - yDiff, tileSize);
+    }
   }
 
   const soldierPositions = soldiers.map(soldier => ({
@@ -131,23 +151,11 @@ const drawBattlefield = ({battlefield, soldiers, player}) => {
   }));
 
   soldierPositions.forEach(({soldier, x, y}) => {
-    const newY = y - position.y + windowHeight / 2;
-    const newX = x - position.x + windowWidth / 2;
-    if (newY >= 0 && newY < windowHeight && newX >= 0 && newX < windowWidth) view[newY][newX] = soldier.draw();
+    const newY = y - position.y + windowHeight * tileSize / 2;
+    const newX = x - position.x + windowWidth * tileSize / 2;
+    if (newY >= 0 && newY < windowHeight * tileSize && newX >= 0 && newX < windowWidth * tileSize)
+      drawBlock(context, newX, newY, tileSize, soldier.team);
   });
-
-  const canvas = document.getElementById('canvasId');
-  const context = canvas.getContext('2d');
-  context.clearRect(0, 0, canvas.width, canvas.height);
-  for (let y = 0; y < view.length; y++) {
-    for (let x = 0; x < view[y].length; x++) {
-      const left = hasLeft(view, x, y, '#');
-      const right = hasRight(view, x, y, '#');
-      const specNum = left && right ? 0 : left ? 2 : 1;
-      if (view[y][x] === '#') drawTile(context, sprite, mapSpec[specNum], x, y, tileSize);
-      else if (view[y][x] !== ' ') drawBlock(context, x, y, tileSize);
-    }
-  }
 };
 
 const drawTile = (context, sprite, singleTileSpec, x, y, tileSize) => {
@@ -157,15 +165,16 @@ const drawTile = (context, sprite, singleTileSpec, x, y, tileSize) => {
     singleTileSpec.y,
     24,
     24, // source coords
-    Math.floor(x * tileSize),
-    Math.floor(y * tileSize),
+    x,
+    y,
     tileSize,
     tileSize // destination coords
   );
 };
 
-const drawBlock = (context, x, y, tileSize) => {
-  context.fillRect(x * tileSize, y * tileSize, tileSize, tileSize);
+const drawBlock = (context, x, y, tileSize, team) => {
+  context.fillStyle = team === 1 ? '#222288' : '#882222';
+  context.fillRect(x, y, tileSize, tileSize);
 };
 
 const play = ({battlefield, soldiers, player}) => {
@@ -183,13 +192,15 @@ const soldiers = Array.from(
     new Soldier({
       brain: ai,
       x: Math.floor(Math.random() * battlefield.dimensions.width),
-      y: Math.floor(Math.random() * battlefield.dimensions.height)
+      y: Math.floor(Math.random() * battlefield.dimensions.height),
+      team: 2
     })
 );
 const player = new Soldier({
   brain: playerBrain,
   x: Math.floor(battlefield.dimensions.width / 2),
-  y: battlefield.dimensions.height - 1
+  y: battlefield.dimensions.height - 1,
+  team: 1
 });
 soldiers.push(player);
 play({battlefield, soldiers, player});
