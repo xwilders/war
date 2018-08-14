@@ -4,6 +4,49 @@ import './css/canvases.css';
 import mapSpec from './imgSpecs/sf2-map.json';
 import spriteImg from './img/sf2-map.png';
 
+import MCTS from './mcts';
+
+const world = [0, 0, 0, 0, 0, 0, 0];
+const game = function(pos = 2, player = 0) {
+  return {
+    pos,
+    getWinner: () => (pos === world.length - 1 ? 0 : 1),
+    getPossibleMoves: () => (pos === world.length - 1 || pos === 0 ? [] : [-1, 1, 0, 2, -2, 3, -3, 4, -4]),
+    getCurrentPlayer: () => player,
+    performMove: move => {
+      pos += move;
+      pos = Math.max(0, pos);
+      pos = Math.min(world.length - 1, pos);
+      player = (player + 1) % 2;
+    },
+    clone: move => {
+      const result = game(pos, player);
+      result.performMove(move);
+      return result;
+    }
+  };
+};
+
+const brain = function(ai, player, turn = 0) {
+  return {
+    getWinner: () => (player.isDead() ? 0 : 1),
+    getPossibleMoves: () => (plyaer.isDead() || ai.isDead() ? [] : ai.getMoves()),
+    getCurrentPlayer: () => turn,
+    performMove: move => {
+      move();
+      turn = (turn + 1) % 2;
+    },
+    clone: move => {
+      const result = brain(ai.clone(), player.clone(), turn);
+      result.performMove(move);
+      return result;
+    }
+  };
+};
+
+const mcts = new MCTS(game(), 100, 0);
+console.log(mcts.selectMove());
+
 const battlefield = {
   dimensions: {width: 50, height: 3},
   sizes: {tileSize: 12, windowHeight: 14, windowWidth: 26}
@@ -97,13 +140,33 @@ const playerBrain = {
 };
 
 class Soldier {
-  constructor({x, y, brain, team}) {
+  constructor({x, y, brain, team, internal = {}}) {
     this.position = {x, y};
     this.direction = DIR_NONE;
     this.brain = brain;
     this.team = team;
-    this.attacking = false;
-    this.timer = 0;
+    const {attacking = false, timer = 0, hp = 10} = internal;
+    this.attacking = attacking;
+    this.timer = timer;
+    this.hp = hp;
+  }
+
+  clone() {
+    const {x, y} = this.position;
+    return new Soldier({
+      x,
+      y,
+      brain: this.brain,
+      team: this.team,
+      internal: {attacking: this.attacking, timer: this.timer, hp: this.hp}
+    });
+  }
+
+  damage() {
+    this.hp -= 1;
+  }
+  isDead() {
+    return this.hp <= 0;
   }
 
   move(dimensions, {x, y}) {
@@ -129,7 +192,6 @@ class Soldier {
   moveDown(dimensions) {
     this.move(dimensions, {x: 0, y: 1});
   }
-
   attack() {
     this.attacking = true;
     this.timer = 3;
@@ -138,6 +200,15 @@ class Soldier {
       width: 1.5,
       height: 0.5
     };
+  }
+  getMoves() {
+    return [
+      () => this.moveForward(battlefield.dimensions),
+      () => this.moveBack(battlefield.dimensions),
+      () => this.moveUp(battlefield.dimensions),
+      () => this.moveDown(battlefield.dimensions),
+      () => this.attack()
+    ];
   }
 
   decideAction({battlefield}) {
@@ -204,9 +275,12 @@ const performActions = ({battlefield, soldiers}) => {
     const {x, y} = soldier.position;
     for (const col of collisions[Math.floor(y)][Math.floor(x)]) {
       if (checkCollision(col, {left: x, right: x + 1, top: y, bottom: y + 1})) {
-        soldier.dead = true;
-        soldiers.splice(i, 1);
-        i--;
+        soldier.damage();
+        if (soldier.isDead()) {
+          soldier.dead = true;
+          soldiers.splice(i, 1);
+          i--;
+        }
       }
     }
   }
